@@ -1,5 +1,7 @@
 require "barrister/amqp/version"
 require 'bunny'
+require 'barrister'
+require 'ostruct'
 
 module Barrister
   module Amqp
