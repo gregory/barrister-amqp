@@ -3,16 +3,31 @@ require 'bunny'
 
 module Barrister
   module Amqp
+    Wrapper = Struct.new(:message) do
+      def wrap
+        {
+          "id"      => Barrister.rand_str(22),
+          "message" => JSON.generate(message, { :ascii_only=>true })
+        }
+      end
+
+      def unwrap
+        message
+      end
+    end
+
+    Config = OpenStruct.new(debug: false, wrapper: Wrapper)
+
     class Transport
       # NOTE: transport needs to implement request method for the Barrister::Client to
       # send requests to the server
       def initialize(service_name, options={})
         conn = Bunny.new ENV.fetch('AMQP_URL') #"Please set AMQP_URL to something like: amqp://user:password@host:port/vhost"
         conn.start
-        @ch = conn.create_channel
-        @service_q = @ch.queue(service_name, auto_delete: false)
-        @reply_q   = @ch.queue('', exclusive: true)
-        @x = @ch.default_exchange
+        @ch             = conn.create_channel
+        @service_q      = @ch.queue(service_name, auto_delete: false)
+        @reply_q        = @ch.queue('', exclusive: true)
+        @x              = @ch.default_exchange
         @response_table = Hash.new { |h,k| h[k] = Queue.new }
 
         @reply_q.subscribe(block: false) do |delivery_info, properties, payload|
@@ -21,14 +36,18 @@ module Barrister
       end
 
       def request(message)
-        @x.publish(JSON.generate(message, { :ascii_only=>true }), { correlation_id: message['id'], reply_to: @reply_q.name, routing_key: @service_q.name})
+        enveloppe = Config.wrapper.new(message).wrap
+        # NOTE message could be an array
+        print "[AMQP TRANSPORT --->] \n #{enveloppe} \n" if Config.debug
+        @x.publish(enveloppe['message'], { correlation_id: enveloppe['id'], reply_to: @reply_q.name, routing_key: @service_q.name})
 
-        response = @response_table[message['id']].pop
-        @response_table.delete message['id']
+        response = @response_table[enveloppe['id']].pop
+        @response_table.delete enveloppe['id']
 
         begin
-          puts "got response: #{JSON.parse(response)}"
-          JSON.parse(response)
+          JSON.parse(response).tap do |resp|
+            print "[AMQP TRANSPORT <---] \n #{resp} \n" if Config.debug
+          end
         rescue JSON::ParserError => e
           raise RpcException.new(-32000, "Bad response #{e.message}")
         end
@@ -62,7 +81,8 @@ module Barrister
 
       def start
         @service_q.subscribe(block: true) do |delivery_info, properties, payload|
-          puts "handle #{payload}"
+          payload = Config.wrapper.new(payload).unwrap
+          puts "handling payload:  #{payload}" if Config.debug
           @x.publish(@server.handle_json(payload), { routing_key: properties.reply_to, correlation_id: properties.correlation_id })
         end
       end
