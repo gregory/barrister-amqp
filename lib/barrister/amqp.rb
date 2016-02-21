@@ -2,6 +2,7 @@ require "barrister/amqp/version"
 require 'bunny'
 require 'barrister'
 require 'ostruct'
+require 'timeout'
 
 module Barrister
   module Amqp
