@@ -31,6 +31,7 @@ module Barrister
         @reply_q        = @ch.queue('', exclusive: true)
         @x              = @ch.default_exchange
         @response_table = Hash.new { |h,k| h[k] = Queue.new }
+        @timeout        = options[:timeout] || 300
 
         @reply_q.subscribe(block: false) do |delivery_info, properties, payload|
           @response_table[properties[:correlation_id]].push payload # push anything that comes in the response_q
@@ -43,8 +44,11 @@ module Barrister
         print "[AMQP TRANSPORT --->] \n #{enveloppe} \n" if Config.debug
         @x.publish(enveloppe['message'], { correlation_id: enveloppe['id'], reply_to: @reply_q.name, routing_key: @service_q.name})
 
-        response = @response_table[enveloppe['id']].pop
-        @response_table.delete enveloppe['id']
+        response = Timeout::timeout(@timeout) do
+          response = @response_table[enveloppe['id']].pop
+          @response_table.delete enveloppe['id']
+          response
+        end
 
         begin
           JSON.parse(response).tap do |resp|
