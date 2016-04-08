@@ -43,7 +43,31 @@ ENV['AMQP_URL']="amqp://user:password@hostname/vhost"
 amqp_transport = Barrister::Amqp::Transport.new('com.company.services.my_barrister_service')
 client = Barrister::Client.new(amqp_transport)
 
-client.ServiceA.my_awesome_rpc_method
+begin
+  client.ServiceA.my_awesome_rpc_method
+rescue Barrister::RpcException => e
+  case e.code
+    when -32603
+      puts "we just timed out"
+    when -32000
+      puts "Something went wrong on the server"
+  end
+end
+```
+
+Optionally, you can set a timeout:
+```rb
+amqp_transport = Barrister::Amqp::Transport.new('com.company.services.my_barrister_service', timeout: 10)
+begin
+  client = Barrister::Client.new(amqp_transport)
+rescue Barrister::RpcException => e
+  case e.code
+    when -32603
+      puts "Response took too longer than 10 seconds"
+    when -32000
+      puts "Something went wrong on the server"
+  end
+end
 ```
 
 ## TODO
