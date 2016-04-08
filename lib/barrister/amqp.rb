@@ -32,7 +32,7 @@ module Barrister
         @reply_q        = @ch.queue('', exclusive: true)
         @x              = @ch.default_exchange
         @response_table = Hash.new { |h,k| h[k] = Queue.new }
-        @timeout        = options[:timeout] || 300
+        @timeout        = options[:timeout] || 1 # Timeout is in seconds
 
         @reply_q.subscribe(block: false) do |delivery_info, properties, payload|
           @response_table[properties[:correlation_id]].push payload # push anything that comes in the response_q
@@ -46,18 +46,18 @@ module Barrister
         @x.publish(enveloppe['message'], { correlation_id: enveloppe['id'], reply_to: @reply_q.name, routing_key: @service_q.name})
 
         response = Timeout::timeout(@timeout) do
-          response = @response_table[enveloppe['id']].pop
-          @response_table.delete enveloppe['id']
-          response
+          @response_table[enveloppe['id']].pop.tap do
+            @response_table.delete enveloppe['id']
+          end
         end
 
-        begin
-          JSON.parse(response).tap do |resp|
-            print "[AMQP TRANSPORT <---] \n #{resp} \n" if Config.debug
-          end
-        rescue JSON::ParserError => e
-          raise RpcException.new(-32000, "Bad response #{e.message}")
+        JSON.parse(response).tap do |resp|
+          print "[AMQP TRANSPORT <---] \n #{resp} \n" if Config.debug
         end
+      rescue Timeout::Error
+        raise RpcException.new(-32603, "Request timed out")
+      rescue JSON::ParserError => e
+        raise RpcException.new(-32000, "Bad response #{e.message}")
       end
     end
 
