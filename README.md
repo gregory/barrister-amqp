@@ -3,6 +3,7 @@
 A Amqp server-container and transport for [Barrister RPC](http://barrister.bitmechanic.com)
 
 Feel free to go read about the concepts at [http://barrister.bitmechanic.com](http://barrister.bitmechanic.com)
+For more information on the RPC status, you can check [this document](http://support.mashery.com/docs/read/mashery_api/20/JSON_RPC)
 
 ## Installation
 
